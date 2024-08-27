@@ -9,8 +9,8 @@ const rl = readline.createInterface({
 
 // Function to decrypt the file
 function decryptFile(inputFile, outputFile, encryptionKey) {
-    const encryptionData = fs.readFileSync(inputFile, 'utf8');
-    const [ivHex, encryptedContent] = encryptionData.split(':');
+    const encryptedData = fs.readFileSync(inputFile, 'utf8');
+    const [ivHex, encryptedContent, timestamp] = encryptedData.split(':');
     const iv = Buffer.from(ivHex, 'hex');
     const key = Buffer.from(encryptionKey, 'hex');
     const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
@@ -18,6 +18,7 @@ function decryptFile(inputFile, outputFile, encryptionKey) {
     decrypted += decipher.final('utf8');
     fs.writeFileSync(outputFile, decrypted);
     console.log(`File decrypted and saved to ${outputFile}`);
+    return crypto.createHash('sha256').update(encryptedData).digest('hex');
 }
 
 // Function to validate and use the one-time decryption key
@@ -28,9 +29,13 @@ function useDecryptionKey(inputFile, providedKey) {
     }
 
     const keyData = JSON.parse(fs.readFileSync(keyFile, 'utf8'));
-    if (keyData.decryptionKey === providedKey && !keyData.used) {
-        keyData.used = true;
-        fs.writeFileSync(keyFile, JSON.stringify(keyData, null, 2));
+    const encryptedData = fs.readFileSync(inputFile, 'utf8');
+    const currentHash = crypto.createHash('sha256').update(encryptedData).digest('hex');
+
+
+    if (keyData.decryptionKey === providedKey && 
+        keyData.fileHash === currentHash && 
+        Date.now() - keyData.timestamp < 24 * 60 * 60 * 1000) { // 24 hours
         return keyData.encryptionKey;
     }
     return null;
@@ -49,10 +54,16 @@ function main() {
     rl.question('Enter the decryption key: ', (decryptionKey) => {
         const encryptionKey = useDecryptionKey(inputFile, decryptionKey);
         if (encryptionKey) {
-            decryptFile(inputFile, outputFile, encryptionKey);
-            console.log('Decryption key has been used successfully');
+            const newHash = decryptFile(inputFile, outputFile, encryptionKey);
+
+            // Update the file hash to prevent reusing the decryption key
+            const keyFile = `${inputFile}.key`;
+            const keyData = JSON.parse(fs.readFileSync(keyFile, 'utf8'));
+            keyData.fileHash = newHash;
+            keyData.timestamp = 0; // Mark the key as used
+            fs.writeFileSync(keyFile, JSON.stringify(keyData, null, 2));
         } else {
-            console.log('Invalid or already used  decryption key');
+            console.log('Invalid or already used decryption key, or file has been tampered with');
         }
 
         rl.close();
