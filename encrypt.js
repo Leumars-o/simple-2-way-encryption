@@ -1,6 +1,5 @@
 const fs = require('fs');
 const crypto = require('crypto');
-const path = require('path');
 
 // Function to encrypt the file
 function encryptFile(inputFile, outputFile, encryptionKey) {
@@ -12,14 +11,16 @@ function encryptFile(inputFile, outputFile, encryptionKey) {
     const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
     let encrypted = cipher.update(fileContent, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    const encryptedData = iv.toString('hex') + ':' + encrypted;
+    const timestamp = Date.now().toString();
+    const encryptedData = `${iv.toString('hex')}:${encrypted}:${timestamp}`;
     fs.writeFileSync(outputFile, encryptedData);
     console.log(`File encrypted and saved to ${outputFile}`);
+    return crypto.createHash('sha256').update(encryptedData).digest('hex');
 }
 
 // Function to generate a unique decryption key
 function generateDecryptionKey() {
-    return crypto.randomBytes(32).toString('hex');
+    return crypto.randomBytes(16).toString('hex');
 }
 
 // Usage
@@ -33,14 +34,15 @@ if (!inputFile || !outputFile) {
     process.exit(1);
 }
 
-encryptFile(inputFile, outputFile, encryptionKey);
+const fileHash = encryptFile(inputFile, outputFile, encryptionKey);
 console.log('One-time decryption key:', decryptionKey);
 
 // Save the decryption key to a file
 const keyData = {
     encryptionKey: encryptionKey,
     decryptionKey: decryptionKey,
-    used: false
+    fileHash: fileHash,
+    timestamp: Date.now()
 };
 
 fs.writeFileSync(`${outputFile}.key`, JSON.stringify(keyData, null, 2));
